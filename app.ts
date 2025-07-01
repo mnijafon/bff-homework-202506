@@ -1,94 +1,121 @@
+// 1. 环境变量和基础配置（最先执行）
+import * as process from 'node:process';
+process.env.TZ = 'Asia/Shanghai'; // 设置时区
+
+// 2. 模块别名配置（需在所有导入前设置）
 import { addAliases } from 'module-alias';
+
 addAliases({
     '@root': __dirname,
     '@interfaces': `${__dirname}/interface`,
     '@config': `${__dirname}/config`,
     '@middlewares': `${__dirname}/middlewares`,
 });
-// 1. 导入 koa，创建 app 实例
+
+// 3. 核心模块导入
 import Koa from 'koa';
-// 3. 引入 awilix，创建 awilix 容器
 import { createContainer, Lifetime } from 'awilix';
-import co from 'co';
-// 5. 引入 koa-swig，注册视图模板引擎
-import render from 'koa-swig';
-console.log('准备导入 config...');
-const config = require('./config/index.ts');
-// 尝试不同的导入方式
-// try {
-// const config1 = require('./config/index.js');
-// console.log('require("./config/index"):', config1);
-
-// const config2 = require('./config/index.ts');
-// console.log('require("./config/index.ts"):', config2);
-
-// const config3 = require('./config');
-// console.log('require("./config"):', config3);
-// } catch (error) {
-//     console.log('导入错误:', error.message);
-// }
-
-import serve from 'koa-static';
-// 4. 引入 awilix-koa，注册路由
 import { loadControllers, scopePerRequest } from 'awilix-koa';
-//koa中没有实现的路由重定向到index.html
+import serve from 'koa-static';
 import { historyApiFallback } from 'koa2-connect-history-api-fallback';
+import render from 'koa-swig';
+import co from 'co';
 import { configure, getLogger } from 'log4js';
 import ErrorHandler from '@middlewares/ErrorHandler';
-import * as process from "node:process";
-//日志系统
-configure({
-    appenders: { cheese: { type: 'file', filename: `${__dirname}/logs/bff.log` } },
-    categories: { default: { appenders: ['cheese'], level: 'error' } },
-});
-const app = new Koa();
-console.log('config=====================================', config)
+
+// 4. 应用配置加载
+const config = require('./config/index.ts'); // 注意：require 可避免 TS 转译冲突
 const { port, viewDir, memoryFlag, staticDir } = config;
-// 静态资源生效节点
-app.use(serve(staticDir));
-// Lifetime.TRANSIENT 每次 resolve 都新建一个实例(不需要共享状态)
-// Lifetime.SCOPED 每个作用域一个实例(每个请求一个独立实例（如 Web 请求）)
-// Lifetime.SINGLETON 全局唯一实例(共享服务、数据库连接池等)
-const container = createContainer();
-// 3. 注册 services 目录下的所有服务到 awilix 容器
 const isProduction = process.env.NODE_ENV === 'production';
-// 生产环境编译成js文件，应扫描js文件，开发环境是ts文件
-const fileExtensions = isProduction ? 'js' : 'ts';
-//所有的可以被注入的代码都在container中
-container.loadModules([`${__dirname}/services/*.${fileExtensions}`], {
+
+// 5. 日志系统初始化（尽早配置）
+configure({
+    appenders: {
+        out: { type: 'stdout' },
+        file: {
+            type: 'dateFile',
+            filename: `${__dirname}/logs/application.log`,
+            pattern: 'yyyy-MM-dd',
+            keepFileExt: true,
+            numBackups: 7
+        }
+    },
+    categories: {
+        default: {
+            appenders: ['out', 'file'],
+            level: isProduction ? 'info' : 'debug'
+        }
+    }
+});
+const logger = getLogger('app');
+
+// 6. 创建 Koa 应用实例
+const app = new Koa();
+
+// 7. 全局错误处理器（注册顺序要靠前）
+ErrorHandler.error(app, logger);
+
+// 8. 依赖注入容器配置
+const container = createContainer();
+container.loadModules([
+    `${__dirname}/services/*.${isProduction ? 'js' : 'ts'}`
+], {
     formatName: 'camelCase',
     resolverOptions: {
         lifetime: Lifetime.SCOPED,
-    },
+    }
 });
-// 为每次http请求创建一个子容器，确保请求之间的数据隔离
-// 子容器继承父容器的注册项，但拥有自己的scoped
-// 请求处理过程中，所有的依赖解析都从这个子容器中进行
-// 请求结束时，子容器会被销毁，释放资源
 app.use(scopePerRequest(container));
-app.context.render = co.wrap(
-    render({
-        root: viewDir,
-        autoescape: true,
-        cache: <'memory' | false>memoryFlag,
-        writeBody: false,
-        ext: 'html',
-    })
-);
-// 添加前端路由重定向生效节点
-// 除了白名单中的路由, 其他路由都重定向到 index.html
-app.use(historyApiFallback({ index: '/', whiteList: ['/api'] }));
-// 让所有的路由全部生效
-const logger = getLogger('cheese');
-ErrorHandler.error(app, logger);
-// 自动发现和注册控制器
-// 支持在控制器中使用依赖注入
-// 通过装饰器（decorator）模式简化路由定义
-app.use(loadControllers(`${__dirname}/routers/*.ts`));
-// 2. 启动 web 服务
-if (process.env.NODE_ENV === 'development') {
+
+// 9. 静态资源服务（如：assets 下的打包文件）
+app.use(serve(staticDir, {
+    maxage: isProduction ? 7 * 24 * 60 * 60 * 1000 : 0
+}));
+console.log('✅ 静态资源目录:', staticDir);
+
+// 10. history API fallback - 仅处理 HTML 请求，交给后面的 ctx.render 渲染
+app.use(historyApiFallback({
+    whiteList: ['/api', '/assets', '/favicon.ico'],
+    htmlAcceptHeaders: ['text/html']
+}));
+
+// 11. 如果是 HTML 路由请求（如 /user/profile），直接返回 SSR 的 index 页面
+app.use(async (ctx, next) => {
+    // 排除 API 请求（避免误判为 HTML）
+    if (ctx.accepts('html') && !ctx.path.startsWith('/api')) {
+        ctx.body = await ctx.render('index');
+        return;
+    }
+    await next();
+});
+
+// 12. 注册模板引擎（Swig）
+app.context.render = co.wrap(render({
+    root: viewDir,
+    autoescape: true,
+    cache: memoryFlag as 'memory' | false,
+    ext: 'html',
+    // 生产环境优化配置
+    ...(isProduction ? {
+        cacheOptions: { max: 1000 },
+        memoryCache: true
+    } : {})
+}));
+
+// 13. 自动路由注册
+app.use(loadControllers(`${__dirname}/routers/*.${isProduction ? 'js' : 'ts'}`, {
+    cwd: __dirname
+}));
+
+// 14. 启动服务（避免在测试时自动启动）
+if (!module.parent) {
     app.listen(port, () => {
-        console.log('BFF启动成功');
+        logger.info(`🚀 BFF 启动成功: http://localhost:${port}`);
+        logger.info(`📁 静态资源目录: ${staticDir}`);
+        logger.info(`🖥️ 视图模板目录: ${viewDir}`);
+        logger.info(`⚙️ 当前环境: ${isProduction ? '生产环境' : '开发环境'}`);
     });
 }
+
+// 15. 导出 app 实例供测试用
 export default app;
