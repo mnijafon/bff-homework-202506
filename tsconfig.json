@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "rootDir": ".",               // 🔸 告诉 tsc 从当前目录开始处理
+    "outDir": "dist",             // 🔸 所有 .ts 文件输出到 dist/ 中
+    "baseUrl": ".",               // 支持路径别名
+    "paths": {
+      "@interfaces/*": ["interfaces/*"],
+      "@services/*": ["services/*"],
+      "@routers/*": ["routers/*"],
+      "@middlewares/*": ["middlewares/*"],
+      "@config/*": ["config/*"],
+      "@assets/*": ["assets/*"],
+      "@views/*": ["views/*"]
+    },
+    "noImplicitAny": true,
+    "noImplicitThis": true,
+    "experimentalDecorators": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "typeRoots": ["typings"]
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}
