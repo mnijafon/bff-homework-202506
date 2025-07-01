@@ -3,7 +3,7 @@ module.exports = {
     {
       name: 'bff-homework-202506',
       script: './app.js',
-      instances: 'max', // 启动所有 CPU 核心
+      instances: 4, // 启动所有 CPU 核心
       exec_mode: 'cluster',
       autorestart: true,
       watch: false,
