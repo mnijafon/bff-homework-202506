@@ -24,9 +24,9 @@ import { configure, getLogger } from 'log4js';
 import ErrorHandler from '@middlewares/ErrorHandler';
 
 // 4. 应用配置加载
-const config = require('./config/index.ts'); // 注意：require 可避免 TS 转译冲突
-const { port, viewDir, memoryFlag, staticDir } = config;
 const isProduction = process.env.NODE_ENV === 'production';
+const config = require(`./config/index.${isProduction ? 'js' : 'ts'}`); // 注意：require 可避免 TS 转译冲突
+const { port, viewDir, memoryFlag, staticDir } = config;
 
 // 5. 日志系统初始化（尽早配置）
 configure({
