@@ -7,7 +7,7 @@ import { addAliases } from 'module-alias';
 
 addAliases({
     '@root': __dirname,
-    '@interfaces': `${__dirname}/interface`,
+    '@interfaces': `${__dirname}/interfaces`,
     '@config': `${__dirname}/config`,
     '@middlewares': `${__dirname}/middlewares`,
 });
